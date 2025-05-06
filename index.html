@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHIZER Conversation UI - Glassy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1093.0.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .gradient-text { background: linear-gradient(90deg, #3b82f6, #8b5cf6, #14b8a6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        button:disabled { background-color: #4a5568 !important; cursor: not-allowed !important; opacity: 0.7; }
+        #controlButton.listening { background-color: #dc2626 !important; }
+        #controlButton.processing { background-color: #f59e0b !important; }
+        #controlButton.speaking { background-color: #8b5cf6 !important; }
+        #controlButton.initial-start { background-color: #2563eb !important; }
+        #controlButton.auto-listen-ready { background-color: #14b8a6 !important; }
+        .widget-container { transition: opacity 0.5s ease-in-out, max-height 0.5s ease-in-out; overflow: hidden; max-height: 1000px; opacity: 1; }
+        .widget-container.hidden { max-height: 0; opacity: 0; margin-top: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; border: none !important; }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #111827; } /* Darker track */
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; } ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+        html, body { height: 100%; margin: 0; }
+
+        /* Glassmorphism effect for metric circles */
+        .metric-circle {
+            border: 1px solid rgba(255, 255, 255, 0.2); /* Lighter border for glass effect */
+            background-color: rgba(255, 255, 255, 0.05); /* Subtle white background */
+            backdrop-filter: blur(10px); /* The blur effect */
+            -webkit-backdrop-filter: blur(10px); /* Safari support */
+            width: 110px; height: 110px; /* Slightly larger */
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            text-align: center; padding: 8px;
+            border-radius: 50%; /* Ensure it's a circle */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Optional subtle shadow */
+        }
+         /* Glassmorphism for control panels */
+        .glass-panel {
+             background-color: rgba(55, 65, 81, 0.6); /* gray-700 with opacity */
+             backdrop-filter: blur(12px);
+             -webkit-backdrop-filter: blur(12px);
+             border: 1px solid rgba(255, 255, 255, 0.1);
+             box-shadow: 0 8px 32px 0 rgba( 31, 38, 135, 0.37 ); /* Optional deeper shadow */
+        }
+
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex flex-col h-screen overflow-hidden">
+
+    <header class="bg-gray-800/80 backdrop-blur-sm shadow-md p-3 w-full flex justify-between items-center flex-shrink-0 z-10 border-b border-gray-700/50">
+        <h1 class="text-xl md:text-2xl font-bold gradient-text">DHIZER</h1>
+        <div class="text-xs md:text-sm text-gray-400">Companion for <span class="font-semibold text-teal-400">Ali</span></div>
+    </header>
+
+    <main class="flex-grow flex flex-col p-4 gap-4 overflow-y-auto">
+
+        <div class="w-full flex flex-col items-center gap-4 flex-shrink-0">
+            <div class="flex flex-col items-center gap-3 p-4 rounded-lg w-full max-w-md">
+                 <div class="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-blue-600 to-teal-600 flex items-center justify-center mb-2 shadow-xl border-2 border-gray-700">
+                    <img src="https://img.freepik.com/premium-photo/smiling-cartoon-doctor_1026065-247395.jpg?w=1800" alt="DHYZER Avatar" class="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover mb-2 shadow-xl border-2 border-gray-700">
+                 </div>
+                 <div id="status" class="text-center text-sm text-gray-400 font-medium">Status: Initializing...</div>
+                 <div id="response" class="text-center text-base text-gray-100 h-12 overflow-hidden line-clamp-2 font-light">(Waiting for Ali...)</div>
+            </div>
+
+            <div class="flex items-center justify-center w-full max-w-xs">
+                <button id="controlButton" class="w-full px-6 py-3 text-lg font-semibold rounded-lg shadow-md hover:shadow-lg transition duration-200 ease-in-out disabled:opacity-70 initial-start" disabled>Initializing...</button>
+            </div
+
+             <div class="glass-panel p-3 rounded-lg shadow-lg flex items-center justify-between w-full max-w-xs">
+                 <div id="voiceSelectContainer" class="flex-grow mr-2">
+                     <label for="pollyVoiceSelect" class="text-xs text-gray-300 block mb-1">DHIZER Voice:</label>
+                     <select id="pollyVoiceSelect" class="bg-gray-600/50 border border-gray-500/50 text-gray-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-1.5">
+                         <option value="Joanna">Joanna (en-US, Neural)</option>
+                         <option value="Matthew">Matthew (en-US, Neural)</option>
+                         <option value="Amy">Amy (en-GB, Neural)</option>
+                         <option value="Brian">Brian (en-GB, Neural)</option>
+                         <option value="Zeina">Zeina (ar-AE, Neural)</option>   
+                     </select>
+                 </div>
+                 <button id="testSpeakButton" class="mt-4 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 hover:bg-blue-700 transition duration-200 ease-in-out self-end shadow-sm">Test</button>
+            </div>
+
+            <div id="transcript-container" class="glass-panel p-3 rounded-lg shadow-lg hidden w-full max-w-xs">
+                <h3 class="text-sm font-semibold mb-1 text-blue-300">You Said:</h3>
+                <div id="transcript" class="text-xs text-gray-200 h-10 overflow-y-auto pr-2">(Transcript...)</div>
+            </div>
+        </div>
+
+        <div class="w-full flex flex-col items-center gap-4 mt-4 flex-shrink-0">
+             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4 w-full max-w-4xl">
+                 <div class="metric-circle border-red-500/50"><span class="text-xs text-gray-400">Heart Rate</span><span id="metric-hr" class="text-2xl font-bold text-red-300">--</span><span class="text-xs text-gray-500">bpm</span></div>
+                 <div class="metric-circle border-blue-500/50"><span class="text-xs text-gray-400">Pressure</span><span id="metric-bp" class="text-lg font-bold text-blue-300">--/--</span><span class="text-xs text-gray-500">mmHg</span></div>
+                 <div class="metric-circle border-purple-500/50"><span class="text-xs text-gray-400">Sleep</span><span id="metric-sleep" class="text-2xl font-bold text-purple-300">--</span><span class="text-xs text-gray-500">hrs</span></div>
+                 <div class="metric-circle border-teal-500/50"><span class="text-xs text-gray-400">Goal</span><span id="metric-goal" class="text-lg font-bold text-teal-300">Walk</span><span class="text-xs text-gray-500">Today</span></div>
+                 <div class="metric-circle border-green-500/50"><span class="text-xs text-gray-400">SpO2</span><span id="metric-spo2" class="text-2xl font-bold text-green-300">--</span><span class="text-xs text-gray-500">%</span></div>
+                 <div class="metric-circle border-yellow-500/50"><span class="text-xs text-gray-400">Temp</span><span id="metric-temp" class="text-xl font-bold text-yellow-300">--</span><span class="text-xs text-gray-500">°C</span></div>
+                 <div class="metric-circle border-cyan-500/50"><span class="text-xs text-gray-400">Water</span><span id="metric-water" class="text-xl font-bold text-cyan-300">--</span><span class="text-xs text-gray-500">glasses</span></div>
+             </div>
+
+             <div id="vitals-widget-container" class="widget-container hidden w-full max-w-4xl mt-4"> <div class="glass-panel p-4 rounded-lg shadow-lg"> <h3 class="text-lg font-semibold mb-3 gradient-text">Vitals Overview</h3> <div class="grid grid-cols-2 gap-3 text-sm mb-4"> <div><p class="text-gray-400">Heart Rate</p><p id="vital-hr" class="text-xl font-semibold text-red-300">-- bpm</p></div> <div><p class="text-gray-400">Blood Pressure</p><p id="vital-bp" class="text-xl font-semibold text-blue-300">--/--</p></div> <div><p class="text-gray-400">SpO2</p><p id="vital-spo2" class="text-xl font-semibold text-green-300">-- %</p></div> <div><p class="text-gray-400">Temp</p><p id="vital-temp" class="text-xl font-semibold text-yellow-300">-- °C</p></div> </div> <div class="h-40 md:h-48"><canvas id="hrChart"></canvas></div> </div> </div>
+             <div id="sleep-widget-container" class="widget-container hidden w-full max-w-4xl mt-4"> <div class="glass-panel p-4 rounded-lg shadow-lg"> <h3 class="text-lg font-semibold mb-3 gradient-text">Sleep Analysis</h3> <div id="sleep-summary" class="text-sm text-gray-300 mb-2">Loading...</div> <div class="flex justify-between items-center text-xs text-gray-400 mt-4"> <span>Quality: <span id="sleep-quality" class="font-semibold text-purple-300">--</span></span> <span>Duration: <span id="sleep-duration" class="font-semibold text-purple-300">-- hrs</span></span> </div> <div class="w-full bg-gray-600/50 rounded-full h-2.5 mt-2"><div id="sleep-progress" class="bg-gradient-to-r from-purple-500 to-indigo-500 h-2.5 rounded-full" style="width: 0%"></div></div> </div> </div>
+             <div id="goals-widget-container" class="widget-container hidden w-full max-w-4xl mt-4"> <div class="glass-panel p-4 rounded-lg shadow-lg"> <h3 class="text-lg font-semibold mb-3 gradient-text">Active Goals</h3> <ul id="goal-list" class="space-y-2 text-sm text-gray-300"><li>Loading...</li></ul> </div> </div>
+             <div id="recommendations-widget-container" class="widget-container hidden w-full max-w-4xl mt-4"> <div class="glass-panel p-4 rounded-lg shadow-lg"> <h3 class="text-lg font-semibold mb-3 gradient-text">Recommendations</h3> <div id="recommendations" class="text-sm text-gray-300 space-y-2"><p>Loading...</p></div> </div> </div>
+        </div>
+    </main>
+
+    <audio id="pollyAudioPlayer" style="display: none;"></audio>
+    <div id="compatibilityWarning" class="warning fixed bottom-4 left-4 right-4 z-50" style="display: none;"> Web Speech Recognition API not supported. </div>
+
+    <script>
+        // --- Configuration ---
+        const GEMINI_API_KEY = "AIzaSyBOPqhntPZJdXmU6KiWLEx-FVBCVHeyqOw"; // Replace
+        const MODEL_NAME = "gemini-1.5-flash-latest";
+        const API_VERSION = "v1beta";
+        const GEMINI_STREAMING_ENDPOINT_URL = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${MODEL_NAME}:streamGenerateContent?key=${GEMINI_API_KEY}`;
+        const GEMINI_GENERATE_ENDPOINT_URL = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
+        const AWS_ACCESS_KEY_ID = "AKIA4MTWI7KOTKA6V7O5";
+        const AWS_SECRET_ACCESS_KEY = "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";
+        const AWS_REGION = "us-east-1";
+        const PATIENT_NAME = "Ali";
+        const LOCATION = "NEOM, Saudi Arabia";
+        const MAX_HISTORY_TURNS = 4;
+
+        // --- DOM Elements ---
+        const controlButton = document.getElementById('controlButton');
+        const statusDiv = document.getElementById('status');
+        const transcriptDiv = document.getElementById('transcript');
+        const responseDiv = document.getElementById('response');
+        const compatibilityWarning = document.getElementById('compatibilityWarning');
+        const pollyVoiceSelect = document.getElementById('pollyVoiceSelect');
+        const testSpeakButton = document.getElementById('testSpeakButton');
+        const widgetContainers = { vitals: document.getElementById('vitals-widget-container'), sleep: document.getElementById('sleep-widget-container'), goals: document.getElementById('goals-widget-container'), recommendations: document.getElementById('recommendations-widget-container') };
+        const metricHrEl = document.getElementById('metric-hr'); const metricBpEl = document.getElementById('metric-bp'); const metricSleepEl = document.getElementById('metric-sleep'); const metricGoalEl = document.getElementById('metric-goal'); const metricSpo2El = document.getElementById('metric-spo2'); const metricTempEl = document.getElementById('metric-temp'); const metricWaterEl = document.getElementById('metric-water');
+        const vitalHrEl = document.getElementById('vital-hr'); const vitalBpEl = document.getElementById('vital-bp'); const vitalSpo2El = document.getElementById('vital-spo2'); const vitalTempEl = document.getElementById('vital-temp');
+        const sleepSummaryEl = document.getElementById('sleep-summary'); const sleepQualityEl = document.getElementById('sleep-quality'); const sleepDurationEl = document.getElementById('sleep-duration'); const sleepProgressEl = document.getElementById('sleep-progress');
+        const goalListEl = document.getElementById('goal-list'); const recommendationsEl = document.getElementById('recommendations');
+        const hrChartCanvas = document.getElementById('hrChart');
+        const pollyAudioPlayer = document.getElementById('pollyAudioPlayer');
+
+        // --- State Variables ---
+         const AppState = { INITIALIZING: 'initializing', AWAITING_INTERACTION: 'awaiting_interaction', IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'processing', SPEAKING: 'speaking' };
+        let currentState = AppState.INITIALIZING;
+        let recognition = null; let conversationHistory = []; let hrChart = null; let initialGreetingData = {};
+        let polly = null; let awsInitialized = false;
+        let conversationStarted = false;
+        let lastSpokenResponse = "";
+
+        // --- Initialize AWS SDK and Polly Client ---
+        function initializeAWS() { /* ... same as previous ... */
+            if (!AWS_ACCESS_KEY_ID || AWS_ACCESS_KEY_ID === "YOUR_AWS_ACCESS_KEY_ID" || !AWS_SECRET_ACCESS_KEY || AWS_SECRET_ACCESS_KEY === "YOUR_AWS_SECRET_ACCESS_KEY") { console.error("AWS credentials missing."); statusDiv.textContent = "Status: AWS Polly not configured"; testSpeakButton.disabled = true; pollyVoiceSelect.disabled = true; return false; }
+            try { AWS.config.update({ region: AWS_REGION, credentials: new AWS.Credentials(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) }); polly = new AWS.Polly({ apiVersion: '2016-06-10' }); console.log("AWS Polly client initialized:", AWS_REGION); awsInitialized = true; return true; }
+            catch (error) { console.error("Error initializing Polly:", error); statusDiv.textContent = "Status: Error initializing Polly"; compatibilityWarning.textContent = `Error initializing Polly: ${error.message}.`; compatibilityWarning.style.display = 'block'; return false; }
+        }
+
+        // --- Web Speech API Setup ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) { compatibilityWarning.textContent = "Web Speech Recognition API not supported."; compatibilityWarning.style.display = 'block'; controlButton.disabled = true; testSpeakButton.disabled = true; pollyVoiceSelect.disabled = true; updateState(AppState.AWAITING_INTERACTION);
+        } else {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false; recognition.lang = 'en-US'; recognition.interimResults = false;
+            recognition.onstart = () => { updateState(AppState.LISTENING); };
+            recognition.onresult = (event) => { const transcript = event.results[0][0].transcript; transcriptDiv.textContent = transcript; stopListening(); updateState(AppState.PROCESSING); handleTranscript(transcript); };
+            recognition.onerror = (event) => { console.error('Speech recognition error:', event.error, event); statusDiv.textContent = `Status: Recog Error - ${event.error}`; updateState(AppState.IDLE); };
+            recognition.onend = () => { if (currentState === AppState.LISTENING) updateState(AppState.IDLE); console.log("Recognition ended."); };
+        }
+
+        // --- Amazon Polly Synthesis ---
+        function speakWithPolly(text) {
+            if (!polly) { console.error("Polly client not initialized."); updateState(AppState.IDLE); return; }
+            if (!text || text.trim() === '') { console.warn("Attempted to speak empty text."); updateState(AppState.IDLE); return; }
+            console.log("Attempting Polly speak:", text.substring(0, 50) + "...");
+            lastSpokenResponse = text; // Store the text being spoken
+            responseDiv.textContent = "DHIZER is speaking..."; // Update brief display
+            updateState(AppState.SPEAKING);
+            const selectedVoiceId = pollyVoiceSelect.value || 'Joanna'; const isNeural = selectedVoiceId.endsWith('(Neural)') || ['Joanna', 'Matthew', 'Amy', 'Brian', 'Zeina'].includes(selectedVoiceId);
+            const params = { Text: text, OutputFormat: 'mp3', VoiceId: selectedVoiceId, Engine: isNeural ? 'neural' : 'standard' }; console.log("Polly params:", params);
+            polly.synthesizeSpeech(params, (err, data) => {
+                if (err) { console.error("Polly synth error:", err); statusDiv.textContent = `Status: Polly Error - ${err.code || err.message}`; responseDiv.textContent = "(Error speaking)"; updateState(AppState.IDLE); }
+                else if (data && data.AudioStream && data.AudioStream instanceof Uint8Array) { console.log("Polly synth success."); const audioBlob = new Blob([data.AudioStream], { type: 'audio/mpeg' }); const url = URL.createObjectURL(audioBlob); pollyAudioPlayer.src = url; pollyAudioPlayer.play().catch(playError => { console.error("Polly play error:", playError); statusDiv.textContent = "Status: Error playing audio"; responseDiv.textContent = "(Playback error)"; updateState(AppState.IDLE); }); }
+                else { console.error("Polly unexpected data:", data); statusDiv.textContent = "Status: Polly Error - Invalid response"; responseDiv.textContent = "(Invalid audio data)"; updateState(AppState.IDLE); }
+            });
+        }
+        pollyAudioPlayer.onended = () => {
+            console.log("Polly playback finished.");
+            responseDiv.textContent = lastSpokenResponse; // Show the full text AFTER speaking
+            updateState(AppState.IDLE);
+            if (conversationStarted) { console.log("Auto-starting listening..."); setTimeout(startListening, 100); }
+        };
+        pollyAudioPlayer.onerror = (e) => { console.error("Audio player error:", e); statusDiv.textContent = "Status: Audio error"; responseDiv.textContent = "(Audio playback error)"; updateState(AppState.IDLE); };
+
+        // --- Core Logic ---
+        function handleTranscript(transcript) {
+             console.log("Handling transcript:", transcript);
+             responseDiv.textContent = "Thinking..."; // Clear response while processing
+             conversationHistory.push({ role: 'user', parts: [{ text: transcript }] }); trimHistory();
+             const userAction = checkForWidgetTriggers(transcript, '');
+             const personaInstructions = `You are DHYZER, a friendly, supportive AI health companion for ${PATIENT_NAME} in ${LOCATION}. Refer to the conversation history.`;
+             const taskInstructions = `Based on the history and latest user input ("${transcript}"), respond naturally and conversationally. If asked about health data (like vitals, sleep, goals), provide context and general explanations. Offer general wellness tips. Keep responses concise for voice.`;
+             const dataRequestInstructions = `If the user asks specifically about trends or data like 'heart rate', 'sleep pattern', 'vitals', etc., AFTER your conversational response, add a simple JSON-like array on a new line labeled clearly (e.g., 'Heart Rate Data: [72, 75, 71, 78, 76, 77, 75]' or 'Sleep Data: [7.5, 8, 6, 7, 7.2, 6.5, 8]'). Generate plausible dummy data for the requested item (around 5-7 points). Only include the data array if explicitly asked about trends or specific data.`;
+             const safetyReminder = `Briefly remind user to consult a doctor for specific medical problems when relevant, but don't overdo disclaimers.`;
+             const fullPromptContents = [ { role: 'user', parts: [{ text: `${personaInstructions} ${taskInstructions} ${dataRequestInstructions} ${safetyReminder}` }] }, ...conversationHistory ];
+             updateState(AppState.PROCESSING);
+             callGeminiApiStreaming(fullPromptContents)
+                 .then(fullResponse => { console.log("Gemini response received:", fullResponse); let conversationalPart = fullResponse; let dataArray = null; const dataMatch = fullResponse.match(/(Heart Rate Data|Sleep Data|Vitals Data):\s*(\[.*?\])/i); if (dataMatch && dataMatch[2]) { try { dataArray = JSON.parse(dataMatch[2]); conversationalPart = fullResponse.replace(dataMatch[0], '').trim(); console.log("Extracted data array:", dataArray); if (dataMatch[1].toLowerCase().includes('heart rate') && Array.isArray(dataArray) && dataArray.every(n => typeof n === 'number')) { updateHrChart(dataArray); showWidget('vitals'); } } catch (parseError) { console.error("Failed to parse data array:", parseError); conversationalPart = fullResponse; dataArray = null; } } if (conversationalPart && conversationalPart.trim().length > 0) { conversationHistory.push({ role: 'model', parts: [{ text: conversationalPart }] }); trimHistory(); /* responseDiv updated AFTER speaking */ checkForWidgetTriggers(transcript, conversationalPart); console.log("Calling speakWithPolly..."); speakWithPolly(conversationalPart); } else { console.warn("API returned empty response."); updateState(AppState.IDLE); } })
+                 .catch(error => { console.error("Gemini call error:", error); const errorMsg = `Sorry, error: ${error.message}`; responseDiv.textContent = errorMsg; speakWithPolly(errorMsg); setTimeout(() => updateState(AppState.IDLE), 500); });
+          }
+
+        // --- Function to Call Gemini API with Streaming ---
+        async function callGeminiApiStreaming(promptContents) { /* ... same as previous version ... */
+            let fullStreamContent = ''; if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY") throw new Error("API Key missing."); if (!GEMINI_STREAMING_ENDPOINT_URL.startsWith("https://")) throw new Error("API URL invalid."); const requestBody = { contents: promptContents }; console.log("Sending STREAMING request:", JSON.stringify(requestBody).substring(0, 200) + "...");
+            try { const response = await fetch(GEMINI_STREAMING_ENDPOINT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }); if (!response.ok) { let e = await response.text(); throw new Error(`API fail ${response.status}: ${e}`); } if (!response.body) throw new Error("No body."); const r = response.body.getReader(); const d = new TextDecoder(); let reading = true; while (reading) { const { done, value } = await r.read(); if (done) { reading = false; break; } fullStreamContent += d.decode(value, { stream: true }); } console.log("Stream done. Raw:", fullStreamContent.substring(0, 500) + "..."); let accumulatedResponse = ''; try { const s = String(fullStreamContent).trim(); if (!s) { console.warn("Empty stream."); return ''; } const j = JSON.parse(s); for (const i of j) { const t = i?.candidates?.[0]?.content?.parts?.[0]?.text; if (t) accumulatedResponse += t; else if (i?.promptFeedback?.blockReason) { console.error("Blocked:", i.promptFeedback.blockReason); accumulatedResponse += ` [Blocked]`; } else if (!i.usageMetadata) console.warn("No text:", JSON.stringify(i)); } } catch (p) { console.error("Parse error:", p, "Raw:", fullStreamContent.substring(0, 500) + "..."); throw new Error("Parse fail."); } return accumulatedResponse; } catch (error) { console.error("Fetch/stream error:", error); throw error; }
+         }
+
+         // --- Function to Call Gemini API Non-Streaming ---
+         async function callGeminiApiGenerate(promptText) { /* ... same as previous version ... */
+             if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY") throw new Error("API Key missing."); if (!GEMINI_GENERATE_ENDPOINT_URL.startsWith("https://")) throw new Error("API URL invalid."); const requestBody = { contents: [{ parts: [{ text: promptText }] }] }; console.log("Sending GENERATE request:", JSON.stringify(requestBody));
+             try { const response = await fetch(GEMINI_GENERATE_ENDPOINT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }); if (!response.ok) { let e = await response.text(); throw new Error(`API fail ${response.status}: ${e}`); } const data = await response.json(); console.log("Generate Response:", data); const t = data?.candidates?.[0]?.content?.parts?.[0]?.text; if (t) return t; else if (data?.promptFeedback?.blockReason) { console.error("Blocked:", data.promptFeedback.blockReason); return `[Blocked]`; } else { console.warn("No text:", data); return "Generate failed."; } } catch (error) { console.error("Fetch/generate error:", error); throw error; }
+          }
+
+        // --- History Management ---
+        function trimHistory() { const maxEntries = MAX_HISTORY_TURNS * 2; if (conversationHistory.length > maxEntries) { conversationHistory = conversationHistory.slice(conversationHistory.length - maxEntries); console.log("Trimmed history:", conversationHistory.length); } }
+
+        // --- UI Update & Control Functions ---
+        function startListening() { /* ... same as previous version ... */ if (currentState !== AppState.IDLE || !recognition || !awsInitialized) { console.log(`Ignoring startListening call. State: ${currentState}, Recog: ${!!recognition}, AWS: ${awsInitialized}`); return; } if (!pollyAudioPlayer.paused) { console.log("Stopping Polly audio before listening..."); pollyAudioPlayer.pause(); pollyAudioPlayer.currentTime = 0; } try { console.log("Attempting to start recognition..."); recognition.start(); console.log("Recognition start requested."); } catch(e) { console.error("Error starting recognition:", e); statusDiv.textContent = `Status: Mic Error - ${e.message || e.name}`; updateState(AppState.IDLE); } }
+        function stopListening() { if (recognition && currentState === AppState.LISTENING) { recognition.stop(); console.log("Recognition stopped."); } }
+
+        function updateState(newState) { /* ... same as previous version ... */
+             console.log(`Updating state from ${currentState} to ${newState}`); currentState = newState;
+             controlButton.classList.remove('listening', 'processing', 'speaking', 'initial-start', 'auto-listen-ready');
+             controlButton.disabled = false; testSpeakButton.disabled = false;
+             switch (newState) {
+                 case AppState.INITIALIZING: statusDiv.textContent = 'Status: Initializing...'; controlButton.textContent = 'Initializing...'; controlButton.disabled = true; testSpeakButton.disabled = true; break;
+                 case AppState.AWAITING_INTERACTION: statusDiv.textContent = 'Status: Ready to Start'; controlButton.textContent = 'Start Conversation'; controlButton.classList.add('initial-start'); controlButton.disabled = !awsInitialized || !recognition; testSpeakButton.disabled = !awsInitialized; break;
+                 case AppState.IDLE: statusDiv.textContent = 'Status: Idle (Ready to Listen)'; controlButton.textContent = 'Start Listening'; controlButton.disabled = !awsInitialized || !recognition; testSpeakButton.disabled = !awsInitialized; controlButton.classList.add('auto-listen-ready'); break;
+                 case AppState.LISTENING: statusDiv.textContent = 'Status: Listening...'; controlButton.textContent = 'Stop Listening'; controlButton.classList.add('listening'); testSpeakButton.disabled = true; break;
+                 case AppState.PROCESSING: statusDiv.textContent = 'Status: Processing...'; controlButton.textContent = 'Processing...'; controlButton.classList.add('processing'); controlButton.disabled = true; testSpeakButton.disabled = true; break;
+                 case AppState.SPEAKING: statusDiv.textContent = 'Status: Speaking...'; controlButton.textContent = 'Speaking...'; controlButton.classList.add('speaking'); controlButton.disabled = true; testSpeakButton.disabled = true; break;
+             } console.log("UI Updated to state:", newState);
+         }
+
+         function resetState() { stopListening(); if (!pollyAudioPlayer.paused) { pollyAudioPlayer.pause(); pollyAudioPlayer.currentTime = 0; } updateState(AppState.IDLE); console.log("State reset to Idle."); }
+
+        // --- Event Listener for Buttons ---
+        controlButton.addEventListener('click', () => { /* ... same as previous version ... */
+            console.log("Control button clicked. Current state:", currentState);
+            switch (currentState) {
+                case AppState.AWAITING_INTERACTION: console.log("Initial interaction - starting greeting."); conversationStarted = true; updateState(AppState.PROCESSING); controlButton.textContent = 'Initializing...'; generateAndSpeakGreeting(); break;
+                case AppState.IDLE: startListening(); break;
+                case AppState.LISTENING: stopListening(); updateState(AppState.IDLE); break;
+                case AppState.PROCESSING: case AppState.SPEAKING: console.log("Button clicked while busy - ignored."); break;
+            }
+        });
+        testSpeakButton.addEventListener('click', () => { /* ... same as previous version ... */ if (currentState === AppState.PROCESSING || currentState === AppState.SPEAKING || currentState === AppState.LISTENING) return; if (!pollyAudioPlayer.paused) { console.log("Stopping Polly..."); pollyAudioPlayer.pause(); pollyAudioPlayer.currentTime = 0; setTimeout(() => { const t = "This is a test."; console.log("Testing Polly:", t); responseDiv.textContent = `Testing: ${t}`; speakWithPolly(t); }, 250); } else { const t = "This is a test."; console.log("Testing Polly:", t); responseDiv.textContent = `Testing: ${t}`; speakWithPolly(t); } });
+
+        // --- Initial Greeting & Data Population ---
+        async function generateAndSpeakGreeting() { /* ... same as previous version ... */
+             const now = new Date(); const hours = now.getHours(); let timeOfDayGreeting = "Salam alaikum";
+             const greetingPrompt = `You are DHYZER, a friendly AI health companion for ${PATIENT_NAME} in ${LOCATION}. Generate a welcoming greeting starting with "${timeOfDayGreeting}, ${PATIENT_NAME}.". Include a *brief, randomized, realistic-sounding* summary of recent dummy health data (Heart Rate, Blood Pressure, SpO2, Temp, Sleep duration/quality). Add a reminder of one active goal and one simple wellness recommendation. End by asking how the user is feeling or if they have questions. Keep the entire response conversational, concise, and natural-sounding for voice output.`;
+             try {
+                 const greetingAndDataText = await callGeminiApiGenerate(greetingPrompt); console.log("Generated Greeting & Data Text:", greetingAndDataText);
+                 if (greetingAndDataText && !greetingAndDataText.startsWith("[Content blocked")) { /* responseDiv updated AFTER speaking */ conversationHistory = [{ role: 'model', parts: [{ text: greetingAndDataText }] }]; parseAndDisplayInitialData(greetingAndDataText); checkForWidgetTriggers('', greetingAndDataText); speakWithPolly(greetingAndDataText); }
+                 else { console.error("Failed greeting generation."); const errorMsg = "Hello! Failed greeting generation. How can I help?"; responseDiv.textContent = errorMsg; conversationHistory = [{ role: 'model', parts: [{ text: errorMsg }] }]; populatePlaceholders(); speakWithPolly(errorMsg); }
+             } catch (error) { console.error("Error generating greeting:", error); statusDiv.textContent = 'Status: Error initializing'; const errorMsg = "Sorry, error starting up."; responseDiv.textContent = errorMsg; populatePlaceholders(); resetState(); }
+         }
+
+        // --- Function to parse and display initial dummy data ---
+        function parseAndDisplayInitialData(text) { /* ... same as previous version ... */
+            initialGreetingData = {}; try { const hrMatch = text.match(/(\d+)\s*bpm/i); const bpMatch = text.match(/(\d+)\s*[\/|over]\s*(\d+)/i); const spo2Match = text.match(/(\d+)%/i); const tempMatch = text.match(/(\d+(\.\d+)?)\s*(degrees|°C)/i); const sleepDurationMatch = text.match(/(\d+(\.\d+)?)\s*hours/i); let sleepQualityText = "Okay"; if (text.toLowerCase().includes("restful") || text.toLowerCase().includes("soundly")) sleepQualityText = "Good"; if (text.toLowerCase().includes("interrupted") || text.toLowerCase().includes("restless")) sleepQualityText = "Fair"; initialGreetingData.hr = hrMatch ? hrMatch[1] : null; initialGreetingData.bpSys = bpMatch ? bpMatch[1] : null; initialGreetingData.bpDia = bpMatch ? bpMatch[2] : null; initialGreetingData.spo2 = spo2Match ? spo2Match[1] : null; initialGreetingData.temp = tempMatch ? tempMatch[1] : null; initialGreetingData.sleepDuration = sleepDurationMatch ? sleepDurationMatch[1] : null; initialGreetingData.sleepQuality = sleepQualityText; initialGreetingData.goal = text.split(/goal|Goal/i)[1]?.split(/recommendation|Recommendation|How are you|Do you have/i)[0]?.trim().replace(/^[:\-\s]+|[:\-\s]+$/g, '') || 'Stay Active'; initialGreetingData.recommendation = text.split(/recommendation|Recommendation|Try to|And try/i)[1]?.split(/How are you|Do you have|\?|\./i)[0]?.trim() || 'Stay healthy!'; initialGreetingData.sleepSummary = text.split(/sleep|slept/i)[1]?.split(/goal|Goal|recommendation|Recommendation/i)[0]?.trim().replace(/^[:\-\s]+|[:\-\s]+$/g, '') || "Summary unavailable."; metricHrEl.textContent = initialGreetingData.hr || '--'; metricBpEl.textContent = (initialGreetingData.bpSys && initialGreetingData.bpDia) ? `${initialGreetingData.bpSys}/${initialGreetingData.bpDia}` : '--/--'; metricSleepEl.textContent = initialGreetingData.sleepDuration || '--'; metricGoalEl.textContent = initialGreetingData.goal.split(' ')[0] || 'Goal'; metricSpo2El.textContent = initialGreetingData.spo2 || '--'; metricTempEl.textContent = initialGreetingData.temp || '--'; metricWaterEl.textContent = '--'; vitalHrEl.textContent = initialGreetingData.hr ? `${initialGreetingData.hr} bpm` : '-- bpm'; vitalBpEl.textContent = (initialGreetingData.bpSys && initialGreetingData.bpDia) ? `${initialGreetingData.bpSys}/${initialGreetingData.bpDia}` : '--/--'; vitalSpo2El.textContent = initialGreetingData.spo2 ? `${initialGreetingData.spo2} %` : '-- %'; vitalTempEl.textContent = initialGreetingData.temp ? `${initialGreetingData.temp} °C` : '-- °C'; sleepDurationEl.textContent = initialGreetingData.sleepDuration ? `${initialGreetingData.sleepDuration} hrs` : '-- hrs'; sleepQualityEl.textContent = initialGreetingData.sleepQuality; sleepSummaryEl.textContent = initialGreetingData.sleepSummary; const sleepPercent = initialGreetingData.sleepDuration ? (parseFloat(initialGreetingData.sleepDuration) / 8) * 100 : 0; sleepProgressEl.style.width = `${Math.min(100, sleepPercent)}%`; goalListEl.innerHTML = `<li class="flex items-center"><span class="w-2 h-2 bg-teal-500 rounded-full mr-2"></span>${initialGreetingData.goal}</li>`; recommendationsEl.innerHTML = `<p class="flex items-start"><span class="text-teal-400 mr-2">&#10148;</span>${initialGreetingData.recommendation}</p>`; updateHrChart([68, 72, 75, 70, 78, 76, parseInt(initialGreetingData.hr || '75')]); } catch (parseError) { console.error("Error parsing data:", parseError); populatePlaceholders(); }
+         }
+
+        // --- Widget Display Logic ---
+        function showWidget(widgetKey) { /* ... same as previous version ... */ console.log("Show widget:", widgetKey); Object.values(widgetContainers).forEach(c => { if (c) c.classList.add('hidden'); }); if (widgetContainers[widgetKey]) { widgetContainers[widgetKey].classList.remove('hidden'); console.log("Showing:", widgetKey); } else console.warn("Widget key not found:", widgetKey); }
+        function checkForWidgetTriggers(userText, modelText) { /* ... same as previous version ... */ const txt = (userText + ' ' + modelText).toLowerCase(); let w = null; if (txt.includes('vitals') || txt.includes('heart') || txt.includes('pressure') || txt.includes('temperature') || txt.includes('spo2')) w = 'vitals'; else if (txt.includes('sleep') || txt.includes('slept') || txt.includes('rest')) w = 'sleep'; else if (txt.includes('goal') || txt.includes('target') || txt.includes('objective')) w = 'goals'; else if (txt.includes('recommend') || txt.includes('suggestion') || txt.includes('advice') || txt.includes('tip')) { if (!modelText.toLowerCase().includes("consult a doctor") && !modelText.toLowerCase().includes("healthcare provider")) w = 'recommendations'; } if (w) showWidget(w); }
+
+        // --- Chart Function ---
+        function updateHrChart(dataPoints = [70, 72, 71, 75, 73, 74, 70]) { /* ... same as previous version ... */ if (!hrChartCanvas) return; const ctx = hrChartCanvas.getContext('2d'); if (!ctx) return; const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; if (hrChart) hrChart.destroy(); hrChart = new Chart(ctx, { type: 'line', data: { labels: labels.slice(-dataPoints.length), datasets: [{ label: 'Heart Rate (dummy)', data: dataPoints, borderColor: 'rgb(14, 184, 166)', backgroundColor: 'rgba(14, 184, 166, 0.1)', tension: 0.3, fill: true, pointBackgroundColor: 'rgb(14, 184, 166)', pointRadius: 3 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false, ticks: { color: '#9ca3af' }, grid: { color: 'rgba(75, 85, 99, 0.5)' } }, x: { ticks: { color: '#9ca3af' }, grid: { display: false } } }, plugins: { legend: { display: false } } } }); }
+
+        // --- Populate Placeholders ---
+        function populatePlaceholders() { /* ... same as previous version ... */ vitalHrEl.textContent = `-- bpm`; vitalBpEl.textContent = `--/--`; vitalSpo2El.textContent = `-- %`; vitalTempEl.textContent = `-- °C`; sleepSummaryEl.textContent = "Summary unavailable."; sleepQualityEl.textContent = "--"; sleepDurationEl.textContent = "-- hrs"; sleepProgressEl.style.width = `0%`; goalListEl.innerHTML = `<li>No goals loaded.</li>`; recommendationsEl.innerHTML = `<p>No recommendations loaded.</p>`; updateHrChart(); }
+
+        // --- Add listener to cancel Polly audio if page is closed/reloaded ---
+        window.addEventListener('beforeunload', () => { if (!pollyAudioPlayer.paused) { console.log("Stopping Polly audio on page unload."); pollyAudioPlayer.pause(); } });
+
+        // --- Initialization ---
+        window.addEventListener('load', () => {
+            console.log("Page loaded. Initializing...");
+            updateState(AppState.INITIALIZING); // Start in initializing state
+            updateHrChart(); // Draw initial chart
+            if (initializeAWS()) { // Initialize AWS SDK and Polly Client
+                 updateState(AppState.AWAITING_INTERACTION); // Move to waiting state
+            } else {
+                statusDiv.textContent = "Status: Polly Init Failed. Voice output disabled.";
+                updateState(AppState.AWAITING_INTERACTION); // Still allow button click if recog works
+            }
+        });
+
+    </script>
+
+</body>
+</html>
